@@ -62,9 +62,70 @@
             animation: pulse 2s infinite;
         }
 
+        .status.offline::before {
+            background: #ef4444;
+        }
+
         @keyframes pulse {
             0%, 100% { opacity: 1; }
             50% { opacity: 0.5; }
+        }
+
+        .settings-toggle {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            background: rgba(255,255,255,0.2);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.8rem;
+        }
+
+        .settings-panel {
+            display: none;
+            padding: 15px 20px;
+            background: #1a1a2e;
+            border-bottom: 1px solid #2d2d4a;
+        }
+
+        .settings-panel.open {
+            display: block;
+        }
+
+        .settings-panel label {
+            display: block;
+            color: #94a3b8;
+            font-size: 0.8rem;
+            margin-bottom: 5px;
+        }
+
+        .settings-panel input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #2d2d4a;
+            border-radius: 8px;
+            background: #0f0f1a;
+            color: white;
+            font-size: 0.9rem;
+            margin-bottom: 10px;
+        }
+
+        .settings-panel button {
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 8px;
+            background: #10b981;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .settings-panel button:hover {
+            background: #059669;
         }
 
         .messages {
@@ -101,6 +162,10 @@
             color: #e2e8f0;
             align-self: flex-start;
             border-bottom-left-radius: 4px;
+        }
+
+        .message.bot.error {
+            border-left: 3px solid #ef4444;
         }
 
         .message.user {
@@ -154,10 +219,6 @@
             box-shadow: 0 10px 20px -10px rgba(99, 102, 241, 0.5);
         }
 
-        .input-area button:active {
-            transform: scale(0.95);
-        }
-
         .typing {
             display: none;
             padding: 12px 16px;
@@ -188,24 +249,30 @@
             0%, 80%, 100% { transform: translateY(0); }
             40% { transform: translateY(-8px); }
         }
-
-        .message img {
-            max-width: 100%;
-            border-radius: 10px;
-            margin-top: 8px;
-        }
     </style>
 </head>
 <body>
-    <div class="chat-container">
+    <div class="chat-container" style="position: relative;">
+        <button class="settings-toggle" onclick="toggleSettings()">⚙️</button>
+        
         <div class="chat-header">
             <h1>🤖 Chatbot IA</h1>
-            <div class="status">Online • Pronto para conversar</div>
+            <div class="status" id="status">Conectando...</div>
+        </div>
+        
+        <div class="settings-panel" id="settingsPanel">
+            <label>URL do Ollama (ex: http://localhost:11434)</label>
+            <input type="text" id="ollamaUrl" placeholder="http://localhost:11434" value="http://localhost:11434">
+            
+            <label>Modelo</label>
+            <input type="text" id="modelName" placeholder="gemma:2b" value="gemma:2b">
+            
+            <button onclick="connectOllama()">Conectar</button>
         </div>
         
         <div class="messages" id="messages">
             <div class="message bot">
-                Olá! 👋 Sou seu assistente virtual. Como posso ajudar você hoje?
+                Olá! 👋 Configure a conexão com Ollama nas configurações (⚙️) para usar IA real, ou use as respostas básicas.
             </div>
             
             <div class="typing" id="typing">
@@ -225,8 +292,17 @@
         const messagesDiv = document.getElementById('messages');
         const userInput = document.getElementById('userInput');
         const typing = document.getElementById('typing');
+        const statusDiv = document.getElementById('status');
+        const settingsPanel = document.getElementById('settingsPanel');
+        
+        let ollamaUrl = localStorage.getItem('ollamaUrl') || 'http://localhost:11434';
+        let modelName = localStorage.getItem('modelName') || 'gemma:2b';
+        let isConnected = false;
 
-        // Respostas do chatbot (pode conectar com IA real)
+        document.getElementById('ollamaUrl').value = ollamaUrl;
+        document.getElementById('modelName').value = modelName;
+
+        // Fallback responses
         const responses = {
             'oi': 'Olá! Como vai você? 😊',
             'olá': 'Olá! Tudo bem? 👋',
@@ -239,9 +315,71 @@
             'default': 'Interessante! Me conta mais sobre isso. 🤔'
         };
 
-        function getBotResponse(message) {
-            const lowerMsg = message.toLowerCase();
+        function toggleSettings() {
+            settingsPanel.classList.toggle('open');
+        }
+
+        async function connectOllama() {
+            ollamaUrl = document.getElementById('ollamaUrl').value;
+            modelName = document.getElementById('modelName').value;
             
+            localStorage.setItem('ollamaUrl', ollamaUrl);
+            localStorage.setItem('modelName', modelName);
+            
+            statusDiv.textContent = 'Testando conexão...';
+            
+            try {
+                const response = await fetch(`${ollamaUrl}/api/tags`, {
+                    method: 'GET',
+                    signal: AbortSignal.timeout(5000)
+                });
+                
+                if (response.ok) {
+                    isConnected = true;
+                    statusDiv.textContent = '🟢 Conectado • ' + modelName;
+                    statusDiv.classList.remove('offline');
+                    settingsPanel.classList.remove('open');
+                    addMessage('Conectado ao Ollama! Agora posso responder usando IA real. 🤖', false);
+                } else {
+                    throw new Error('Failed');
+                }
+            } catch (error) {
+                isConnected = false;
+                statusDiv.textContent = '🔴 Offline';
+                statusDiv.classList.add('offline');
+                addMessage('Não consegui conectar ao Ollama. Verifique se está rodando (ollama serve). Usando respostas básicas.', false, true);
+            }
+        }
+
+        // Auto-connect on load
+        connectOllama();
+
+        async function getBotResponse(message) {
+            if (isConnected) {
+                try {
+                    const response = await fetch(`${ollamaUrl}/api/generate`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            model: modelName,
+                            prompt: message,
+                            stream: false
+                        }),
+                        signal: AbortSignal.timeout(60000)
+                    });
+                    
+                    if (response.ok) {
+                        const data = await response.json();
+                        return data.response || 'Não consegui gerar uma resposta.';
+                    }
+                } catch (error) {
+                    console.error('Ollama error:', error);
+                    addMessage('Erro ao conectar com IA. Usando respostas básicas.', false, true);
+                }
+            }
+            
+            // Fallback to simple responses
+            const lowerMsg = message.toLowerCase();
             for (const [key, value] of Object.entries(responses)) {
                 if (lowerMsg.includes(key)) {
                     return value;
@@ -250,9 +388,9 @@
             return responses['default'];
         }
 
-        function addMessage(text, isUser) {
+        function addMessage(text, isUser, isError = false) {
             const messageDiv = document.createElement('div');
-            messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+            messageDiv.className = `message ${isUser ? 'user' : 'bot'}${isError ? ' error' : ''}`;
             messageDiv.textContent = text;
             
             messagesDiv.insertBefore(messageDiv, typing);
@@ -268,7 +406,7 @@
             typing.classList.remove('active');
         }
 
-        function sendMessage() {
+        async function sendMessage() {
             const message = userInput.value.trim();
             if (!message) return;
 
@@ -277,12 +415,10 @@
 
             showTyping();
 
-            // Simula delay de resposta (aqui você pode conectar com uma API real)
-            setTimeout(() => {
-                hideTyping();
-                const response = getBotResponse(message);
-                addMessage(response, false);
-            }, 1000 + Math.random() * 1000);
+            const response = await getBotResponse(message);
+            
+            hideTyping();
+            addMessage(response, false);
         }
 
         userInput.addEventListener('keypress', (e) => {
